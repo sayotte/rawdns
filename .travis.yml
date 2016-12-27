@@ -1,0 +1,7 @@
+language: go
+
+go:
+- 1.7.x
+
+before_install:
+- git submodule update --init --remote --recursive

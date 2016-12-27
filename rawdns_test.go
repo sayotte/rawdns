@@ -1,10 +1,12 @@
-package rawdns
+package rawmdns
 
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"os"
 	"reflect"
 	"strings"
@@ -15,40 +17,7 @@ import (
 
 var rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-func TestDNSMessage_roundtrip(t *testing.T) {
-	// Source from file
-	fd, err := os.Open("testdata/airplay-question.cap")
-	if err != nil {
-		t.Fatalf("os.Open() error: %s\n", err)
-	}
-	defer fd.Close()
-
-	b, err := ioutil.ReadAll(fd)
-	if err != nil {
-		t.Fatalf("ioutil.ReadAll() error: %s\n", err)
-	}
-
-	rdr := bytes.NewReader(b)
-	dm, err := DNSMessageFromBytes(rdr)
-	if err != nil {
-		t.Errorf("Unexpected error from DNSMessageFromBytes: %s\n", err)
-	}
-
-	// Back to []byte
-	b, err = dm.ToBytes()
-	if err != nil {
-		t.Errorf("Unexpected error from dm.ToBytes: %s\n", err)
-	}
-
-	// Back to memory
-	rdr = bytes.NewReader(b)
-	dm, err = DNSMessageFromBytes(rdr)
-	if err != nil {
-		t.Errorf("Unexpected error from DNSMessageFromBytes(2): %s\n", err)
-	}
-}
-
-func TestHeader_roundtrip(t *testing.T) {
+func TestHeaderRoundtrip(t *testing.T) {
 	checkFunc := func() bool {
 		val, ok := quick.Value(reflect.TypeOf(DNSHeader{}), rnd)
 		if !ok {
@@ -62,12 +31,13 @@ func TestHeader_roundtrip(t *testing.T) {
 		}
 		rdr := bytes.NewReader(hb)
 
-		rawH, err := rawDNSHeaderFromBytes(rdr)
+		d := NewDecoder(rdr)
+		rawH, err := d.nextRawDNSHeader()
 		if err != nil {
 			t.Fatalf("Unexpected error from rawDNSHeaderFromBytes: %s", err)
 		}
 
-		same, reasons := h.equals(rawH.toDNSHeader())
+		same, reasons := h.equal(rawH.toDNSHeader())
 		if !same {
 			t.Error("h != round-tripped h")
 			for _, reason := range reasons {
@@ -85,68 +55,69 @@ func TestHeader_roundtrip(t *testing.T) {
 	quick.Check(checkFunc, &cfg)
 }
 
-func (dh DNSHeader) equals(other DNSHeader) (bool, []string) {
+func (dh DNSHeader) equal(odh equaler) (bool, []string) {
+	other := odh.(DNSHeader)
 	same := true
 	var reasons []string
 
-	if dh.id != other.id {
+	if dh.ID != other.ID {
 		same = false
-		reason := fmt.Sprintf("id: %d != %d", dh.id, other.id)
+		reason := fmt.Sprintf("id: %d != %d", dh.ID, other.ID)
 		reasons = append(reasons, reason)
 	}
-	if dh.isResponse != other.isResponse {
+	if dh.IsResponse != other.IsResponse {
 		same = false
-		reason := fmt.Sprintf("isResponse: %t != %t", dh.isResponse, other.isResponse)
+		reason := fmt.Sprintf("isResponse: %t != %t", dh.IsResponse, other.IsResponse)
 		reasons = append(reasons, reason)
 	}
-	if dh.opCode != other.opCode {
+	if dh.OpCode != other.OpCode {
 		same = false
-		reason := fmt.Sprintf("opCode: %d != %d", dh.opCode, other.opCode)
+		reason := fmt.Sprintf("opCode: %d != %d", dh.OpCode, other.OpCode)
 		reasons = append(reasons, reason)
 	}
-	if dh.authoritative != other.authoritative {
+	if dh.Authoritative != other.Authoritative {
 		same = false
-		reason := fmt.Sprintf("authoritative: %t != %t", dh.authoritative, other.authoritative)
+		reason := fmt.Sprintf("authoritative: %t != %t", dh.Authoritative, other.Authoritative)
 		reasons = append(reasons, reason)
 	}
-	if dh.truncated != other.truncated {
+	if dh.Truncated != other.Truncated {
 		same = false
-		reason := fmt.Sprintf("truncated: %t != %t", dh.truncated, other.truncated)
+		reason := fmt.Sprintf("truncated: %t != %t", dh.Truncated, other.Truncated)
 		reasons = append(reasons, reason)
 	}
-	if dh.recursionDesired != other.recursionDesired {
+	if dh.RecursionDesired != other.RecursionDesired {
 		same = false
-		reason := fmt.Sprintf("recursionDesired: %t != %t", dh.recursionDesired, other.recursionDesired)
+		reason := fmt.Sprintf("recursionDesired: %t != %t", dh.RecursionDesired, other.RecursionDesired)
 		reasons = append(reasons, reason)
 	}
-	if dh.recursionAvailable != other.recursionAvailable {
+	if dh.RecursionAvailable != other.RecursionAvailable {
 		same = false
-		reason := fmt.Sprintf("recursionAvailable: %t != %t", dh.recursionAvailable, other.recursionAvailable)
+		reason := fmt.Sprintf("recursionAvailable: %t != %t", dh.RecursionAvailable, other.RecursionAvailable)
 		reasons = append(reasons, reason)
 	}
-	if dh.responseCode != other.responseCode {
+	if dh.ResponseCode != other.ResponseCode {
 		same = false
-		reason := fmt.Sprintf("responseCode: %d != %d", dh.responseCode, other.responseCode)
+		reason := fmt.Sprintf("responseCode: %d != %d", dh.ResponseCode, other.ResponseCode)
 		reasons = append(reasons, reason)
 	}
-	if dh.numQuestions != other.numQuestions {
+	if dh.NumQuestions != other.NumQuestions {
 		same = false
-		reason := fmt.Sprintf("numQuestions: %d != %d", dh.numQuestions, other.numQuestions)
+		reason := fmt.Sprintf("numQuestions: %d != %d", dh.NumQuestions, other.NumQuestions)
 		reasons = append(reasons, reason)
 	}
-	if dh.numAnswers != other.numAnswers {
+	if dh.NumAnswers != other.NumAnswers {
 		same = false
-		reason := fmt.Sprintf("numAnswers: %d != %d", dh.numAnswers, other.numAnswers)
+		reason := fmt.Sprintf("numAnswers: %d != %d", dh.NumAnswers, other.NumAnswers)
 		reasons = append(reasons, reason)
 	}
-	if dh.numNameServers != other.numNameServers {
+	if dh.NumNameServers != other.NumNameServers {
 		same = false
-		reason := fmt.Sprintf("numNameServers: %d != %d", dh.numNameServers, other.numNameServers)
+		reason := fmt.Sprintf("numNameServers: %d != %d", dh.NumNameServers, other.NumNameServers)
 		reasons = append(reasons, reason)
 	}
-	if dh.numAddlRecords != other.numAddlRecords {
+	if dh.NumAddlRecords != other.NumAddlRecords {
 		same = false
-		reason := fmt.Sprintf("numAddlRecords: %d != %d", dh.numAddlRecords, other.numAddlRecords)
+		reason := fmt.Sprintf("numAddlRecords: %d != %d", dh.NumAddlRecords, other.NumAddlRecords)
 		reasons = append(reasons, reason)
 	}
 
@@ -161,38 +132,290 @@ func (typ DNSHeader) Generate(rand *rand.Rand, size int) reflect.Value {
 	var typBool bool
 
 	val, _ := quick.Value(reflect.TypeOf(typUint16), rand)
-	dh.id = val.Interface().(uint16)
+	dh.ID = val.Interface().(uint16)
 	val, _ = quick.Value(reflect.TypeOf(typBool), rand)
-	dh.isResponse = val.Bool()
+	dh.IsResponse = val.Bool()
 
 	val, _ = quick.Value(reflect.TypeOf(typUint), rand)
-	dh.opCode = uint(val.Interface().(uint) & 0xF)
+	dh.OpCode = OpCode(val.Interface().(uint) & 0xF)
 
 	val, _ = quick.Value(reflect.TypeOf(typBool), rand)
-	dh.authoritative = val.Bool()
+	dh.Authoritative = val.Bool()
 	val, _ = quick.Value(reflect.TypeOf(typBool), rand)
-	dh.truncated = val.Bool()
+	dh.Truncated = val.Bool()
 	val, _ = quick.Value(reflect.TypeOf(typBool), rand)
-	dh.recursionDesired = val.Bool()
+	dh.RecursionDesired = val.Bool()
 	val, _ = quick.Value(reflect.TypeOf(typBool), rand)
-	dh.recursionAvailable = val.Bool()
+	dh.RecursionAvailable = val.Bool()
 
 	val, _ = quick.Value(reflect.TypeOf(typUint), rand)
-	dh.responseCode = uint(val.Interface().(uint) & 0xF)
+	dh.ResponseCode = ResponseCode(val.Interface().(uint) & 0xF)
 
 	val, _ = quick.Value(reflect.TypeOf(typUint16), rand)
-	dh.numQuestions = val.Interface().(uint16)
+	dh.NumQuestions = val.Interface().(uint16)
 	val, _ = quick.Value(reflect.TypeOf(typUint16), rand)
-	dh.numAnswers = val.Interface().(uint16)
+	dh.NumAnswers = val.Interface().(uint16)
 	val, _ = quick.Value(reflect.TypeOf(typUint16), rand)
-	dh.numNameServers = val.Interface().(uint16)
+	dh.NumNameServers = val.Interface().(uint16)
 	val, _ = quick.Value(reflect.TypeOf(typUint16), rand)
-	dh.numAddlRecords = val.Interface().(uint16)
+	dh.NumAddlRecords = val.Interface().(uint16)
 
 	return reflect.ValueOf(dh)
 }
 
-func TestQuestion_roundtrip(t *testing.T) {
+func TestDecoder_DecodeDNSMessage(t *testing.T) {
+	expected := DNSMessage{
+		Answers: []DNSResourceRecord{
+			PTRRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "4.5.9.10.in-addr.arpa",
+					Type:       TypePTR,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        120,
+				},
+				PtrDName: "10-9-5-4.local",
+			},
+			TXTRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "7475482BF2C9@AFTB-4._raop._tcp.local",
+					Type:       TypeTXT,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        4500,
+				},
+				texts: []string{
+					"pk=339060cd47b8d71a8d1b09263a42ab7feb44d85252c928a4bf0c9c74cc263e64",
+					"ss=16",
+					"sr=44100",
+					"cn=0,1,2,3",
+					"da=true",
+					"rmodel=AirReceiver3,1",
+					"et=0,3,5",
+					"ch=2",
+					"sf=0x4",
+					"vn=65537",
+					"am=AppleTV3,1",
+					"sv=false",
+					"md=0,1,2",
+					"ft=0x527FFEF7",
+					"txtvers=1",
+					"pw=false",
+					"vs=211.3",
+					"tp=UDP",
+					"sm=false"},
+			},
+			PTRRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "_services._dns-sd._udp.local",
+					Type:       TypePTR,
+					Class:      ClassINET,
+					CacheFlush: false,
+					TTL:        4500,
+				},
+				PtrDName: "_raop._tcp.local",
+			},
+			PTRRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "_raop._tcp.local",
+					Type:       TypePTR,
+					Class:      ClassINET,
+					CacheFlush: false,
+					TTL:        4500,
+				},
+				PtrDName: "7475482BF2C9@AFTB-4._raop._tcp.local",
+			},
+			TXTRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "AFTB-4._airplay._tcp.local",
+					Type:       TypeTXT,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        4500,
+				},
+				texts: []string{
+					"pk=339060cd47b8d71a8d1b09263a42ab7feb44d85252c928a4bf0c9c74cc263e64",
+					"srcvers=211.3",
+					"rmodel=AirReceiver3,1",
+					"features=0x527FFEF7",
+					"flags=0x4",
+					"pw=0",
+					"deviceid=74:75:48:2B:F2:C9",
+					"model=AppleTV3,1",
+				},
+			},
+			PTRRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "_services._dns-sd._udp.local",
+					Type:       TypePTR,
+					Class:      ClassINET,
+					CacheFlush: false,
+					TTL:        4500,
+				},
+				PtrDName: "_airplay._tcp.local",
+			},
+			PTRRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "_airplay._tcp.local",
+					Type:       TypePTR,
+					Class:      ClassINET,
+					CacheFlush: false,
+					TTL:        4500,
+				},
+				PtrDName: "AFTB-4._airplay._tcp.local",
+			},
+			ARecord{
+				Common: ResourceRecordCommon{
+					Domain:     "10-9-5-4.local",
+					Type:       TypeA,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        120,
+				},
+				Addr: net.IP([]byte{10, 9, 5, 4}),
+			},
+			SRVRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "7475482BF2C9@AFTB-4._raop._tcp.local",
+					Type:       TypeSRV,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        120,
+				},
+				Priority: 0,
+				Weight:   0,
+				Port:     5000,
+				Target:   "10-9-5-4.local",
+			},
+			SRVRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "AFTB-4._airplay._tcp.local",
+					Type:       TypeSRV,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        120,
+				},
+				Priority: 0,
+				Weight:   0,
+				Port:     7000,
+				Target:   "10-9-5-4.local",
+			},
+		},
+		Additional: []DNSResourceRecord{
+			NSECRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "4.5.9.10.in-addr.arpa",
+					Type:       TypeNSEC,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        120,
+				},
+				NextDomainName:  "4.5.9.10.in-addr.arpa",
+				NextDomainTypes: []RecordType{TypePTR},
+			},
+			NSECRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "7475482BF2C9@AFTB-4._raop._tcp.local",
+					Type:       TypeNSEC,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        4500,
+				},
+				NextDomainName:  "7475482BF2C9@AFTB-4._raop._tcp.local",
+				NextDomainTypes: []RecordType{TypeTXT, TypeSRV},
+			},
+			NSECRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "AFTB-4._airplay._tcp.local",
+					Type:       TypeNSEC,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        4500,
+				},
+				NextDomainName:  "AFTB-4._airplay._tcp.local",
+				NextDomainTypes: []RecordType{TypeTXT, TypeSRV},
+			},
+			NSECRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "10-9-5-4.local",
+					Type:       TypeNSEC,
+					Class:      ClassINET,
+					CacheFlush: true,
+					TTL:        120,
+				},
+				NextDomainName:  "10-9-5-4.local",
+				NextDomainTypes: []RecordType{TypeA},
+			},
+			OPTRecord{
+				Common: ResourceRecordCommon{
+					Domain:     "",
+					Type:       TypeOPT,
+					Class:      1440,
+					CacheFlush: false,
+					TTL:        4500,
+				},
+				Options: map[uint16][]uint8{
+					4: []uint8{
+						0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x70, 0x31, 0xfe, 0xb7, 0x00, 0x00},
+				},
+			},
+		},
+	}
+
+	// contents of this file were pulled from a packet cap, so we know they're
+	// correct at least in some other implementation's mind (Wireshark agrees)
+	fd, err := os.Open("testdata/airplay-answer.cap")
+	if err != nil {
+		t.Fatalf("os.Open() error: %s\n", err)
+	}
+	defer fd.Close()
+
+	b, err := ioutil.ReadAll(fd)
+	if err != nil {
+		t.Fatalf("ioutil.ReadAll() error: %s\n", err)
+	}
+
+	rdr := bytes.NewReader(b)
+	d := NewDecoder(rdr)
+	dm, err := d.DecodeDNSMessage()
+	if err != nil {
+		if err != io.EOF {
+			t.Fatalf("Unexpected error from Decoder.DecodeDNSMessage: %s\n", err)
+		}
+	}
+
+	if len(dm.Answers) != len(expected.Answers) {
+		t.Fatalf("len(dm.Answers) is %d, expected %d", len(dm.Answers), len(expected.Answers))
+	}
+	for i, answer := range dm.Answers {
+		answerEq := answer.(equaler)
+		expectedEq := expected.Answers[i].(equaler)
+		same, reasons := answerEq.equal(expectedEq)
+		if !same {
+			t.Errorf("Answers[%d]:", i)
+			for _, reason := range reasons {
+				t.Log(reason)
+			}
+		}
+	}
+	if len(dm.Additional) != len(expected.Additional) {
+		t.Fatalf("len(dm.Additional) is %d, expected %d", len(dm.Additional), len(expected.Additional))
+	}
+	for i, addl := range dm.Additional {
+		addlEq := addl.(equaler)
+		expectedEq := expected.Additional[i].(equaler)
+		same, reasons := addlEq.equal(expectedEq)
+		if !same {
+			t.Errorf("Additional[%d]:", i)
+			for _, reason := range reasons {
+				t.Log(reason)
+			}
+		}
+	}
+}
+
+func TestQuestionRoundtrip(t *testing.T) {
 	checkFunc := func() bool {
 		val, ok := quick.Value(reflect.TypeOf(DNSQuestion{}), rnd)
 		if !ok {
@@ -206,13 +429,14 @@ func TestQuestion_roundtrip(t *testing.T) {
 		}
 		rdr := bytes.NewReader(dqb)
 
-		rawDq, _, err := rawQuestionFromBytes(rdr, nil)
+		d := NewDecoder(rdr)
+		rawDq, err := d.nextRawQuestion()
 		if err != nil {
 			t.Fatalf("Unexpected error from rawQuestionFromBytes: %s", err)
 		}
 		dqrt := rawDq.toQuestion()
 
-		same, reasons := dq.equals(dqrt)
+		same, reasons := dq.equal(dqrt)
 		if !same {
 			t.Error("dq != dqrt")
 			for _, reason := range reasons {
@@ -230,26 +454,27 @@ func TestQuestion_roundtrip(t *testing.T) {
 	quick.Check(checkFunc, &cfg)
 }
 
-func (dq DNSQuestion) equals(other DNSQuestion) (bool, []string) {
+func (dq DNSQuestion) equal(odq equaler) (bool, []string) {
+	other := odq.(DNSQuestion)
 	same := true
 	var reasons []string
-	if dq.domain != other.domain {
+	if dq.Domain != other.Domain {
 		same = false
-		reasons = []string{fmt.Sprintf("domain: %q != %q", dq.domain, other.domain)}
+		reasons = []string{fmt.Sprintf("domain: %q != %q", dq.Domain, other.Domain)}
 	}
-	if dq.typ != other.typ {
+	if dq.Type != other.Type {
 		same = false
-		reason := fmt.Sprintf("typ: %d != %d", dq.typ, other.typ)
+		reason := fmt.Sprintf("typ: %d != %d", dq.Type, other.Type)
 		reasons = append(reasons, reason)
 	}
-	if dq.class != other.class {
+	if dq.Class != other.Class {
 		same = false
-		reason := fmt.Sprintf("class: %d != %d", dq.class, other.class)
+		reason := fmt.Sprintf("class: %d != %d", dq.Class, other.Class)
 		reasons = append(reasons, reason)
 	}
-	if dq.acceptUnicastResponse != other.acceptUnicastResponse {
+	if dq.AcceptUnicastResponse != other.AcceptUnicastResponse {
 		same = false
-		reason := fmt.Sprintf("acceptUnicastResponse: %t != %t", dq.acceptUnicastResponse, other.acceptUnicastResponse)
+		reason := fmt.Sprintf("acceptUnicastResponse: %t != %t", dq.AcceptUnicastResponse, other.AcceptUnicastResponse)
 		reasons = append(reasons, reason)
 	}
 
@@ -274,27 +499,27 @@ func (typ DNSQuestion) Generate(rand *rand.Rand, size int) reflect.Value {
 		labels = append(labels, randString(labelLen))
 		nameLen += labelLen + 1
 	}
-	dq.domain = strings.Join(labels, ".")
+	dq.Domain = strings.Join(labels, ".")
 
 	var val reflect.Value
 	var ok bool
-	val, ok = quick.Value(reflect.TypeOf(dq.typ), rand)
+	val, ok = quick.Value(reflect.TypeOf(dq.Type), rand)
 	if !ok {
 		panic("quick.Value(reflect.TypeOf(dq.typ)")
 	}
-	dq.typ = val.Interface().(uint16)
+	dq.Type = val.Interface().(RecordType)
 
-	val, ok = quick.Value(reflect.TypeOf(dq.class), rand)
+	val, ok = quick.Value(reflect.TypeOf(dq.Class), rand)
 	if !ok {
 		panic("quick.Value(reflect.TypeOf(dq.class)")
 	}
-	dq.class = val.Interface().(uint16) & 0x7FFF
+	dq.Class = val.Interface().(RecordClass) & 0x7FFF
 
-	val, ok = quick.Value(reflect.TypeOf(dq.acceptUnicastResponse), rand)
+	val, ok = quick.Value(reflect.TypeOf(dq.AcceptUnicastResponse), rand)
 	if !ok {
 		panic("quick.Value(reflect.TypeOf(dq.acceptUnicastResponse)")
 	}
-	dq.acceptUnicastResponse = val.Bool()
+	dq.AcceptUnicastResponse = val.Bool()
 
 	return reflect.ValueOf(dq)
 }
@@ -308,3 +533,22 @@ func randString(n int) string {
 	}
 	return string(b)
 }
+
+//func TestBullshit(t *testing.T) {
+//	fd, err := os.Open("testdata/addl-records-sample.bin")
+//	if err != nil {
+//		t.Fatalf("os.Open() error: %s\n", err)
+//	}
+//	defer fd.Close()
+//
+//	b, err := ioutil.ReadAll(fd)
+//	if err != nil {
+//		t.Fatalf("ioutil.ReadAll() error: %s\n", err)
+//	}
+//
+//	rdr := bytes.NewReader(b)
+//	d := NewDecoder(rdr)
+//	dm, err := d.DecodeDNSMessage()
+//	spew.Dump(dm)
+//	t.Fail()
+//}
