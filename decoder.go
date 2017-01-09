@@ -277,7 +277,11 @@ func (d *Decoder) newSRVRecordFromRawRR(rdrr rawResourceRecord) (SRVRecord, erro
 	var rlList rawLabels
 	var err error
 	rdr := bytes.NewReader(rdrr.rData[6:])
-	rlList, err = d._nextRawLabelsFromReaderWithBaseOffset(rdr, rdrr.rDataOffsetInMsg)
+	// "target" field starts at byte 6 in the RDATA section; to ensure we
+	// store the label record properly (so others can reference it) we have to
+	// account for that correctly here
+	targetOffsetInMsg := rdrr.rDataOffsetInMsg + 6
+	rlList, err = d._nextRawLabelsFromReaderWithBaseOffset(rdr, targetOffsetInMsg)
 	if err != nil {
 		return s, fmt.Errorf("TypeSRV: _nextRawLabelsFromReaderWithBaseOffset: %s", err)
 	}

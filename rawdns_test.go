@@ -535,7 +535,7 @@ func randString(n int) string {
 }
 
 //func TestBullshit(t *testing.T) {
-//	fd, err := os.Open("testdata/addl-records-sample.bin")
+//	fd, err := os.Open("testdata/addl-records-2.bin")
 //	if err != nil {
 //		t.Fatalf("os.Open() error: %s\n", err)
 //	}
