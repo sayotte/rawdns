@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"reflect"
 )
 
 // bufWriteAttempter is used to cut down on boilerplate error-handling in code
@@ -96,6 +97,37 @@ type ResourceRecordCommon struct {
 	TTL        uint32
 }
 
+func (rrc ResourceRecordCommon) equal(other ResourceRecordCommon) (bool, []string) {
+	same := true
+	var reasons []string
+	if rrc.Domain != other.Domain {
+		same = false
+		reason := fmt.Sprintf("Domain: %q != %q", rrc.Domain, other.Domain)
+		reasons = append(reasons, reason)
+	}
+	if rrc.Type != other.Type {
+		same = false
+		reason := fmt.Sprintf("Type: %d != %d", rrc.Type, other.Type)
+		reasons = append(reasons, reason)
+	}
+	if rrc.Class != other.Class {
+		same = false
+		reason := fmt.Sprintf("Class: %d != %d", rrc.Class, other.Class)
+		reasons = append(reasons, reason)
+	}
+	if rrc.CacheFlush != other.CacheFlush {
+		same = false
+		reason := fmt.Sprintf("CacheFlush: %t != %t", rrc.CacheFlush, other.CacheFlush)
+		reasons = append(reasons, reason)
+	}
+	if rrc.TTL != other.TTL {
+		same = false
+		reason := fmt.Sprintf("TTL: %d != %d", rrc.TTL, other.TTL)
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
+}
+
 type ARecord struct {
 	Common ResourceRecordCommon
 	Addr   net.IP
@@ -112,6 +144,17 @@ func (ar ARecord) GetCommon() ResourceRecordCommon {
 	return ar.Common
 }
 
+func (ar ARecord) Equal(oar DNSResourceRecord) (bool, []string) {
+	other := oar.(ARecord)
+	same, reasons := ar.Common.equal(other.Common)
+	if !ar.Addr.Equal(other.Addr) {
+		same = false
+		reason := fmt.Sprintf("Addr: %v != %v", []byte(ar.Addr), []byte(other.Addr))
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
+}
+
 type AAAARecord struct {
 	Common ResourceRecordCommon
 	Addr   net.IP
@@ -126,6 +169,17 @@ func (aaaar AAAARecord) toRawDNSResourceRecord() (rawResourceRecord, error) {
 
 func (aaaar AAAARecord) GetCommon() ResourceRecordCommon {
 	return aaaar.Common
+}
+
+func (aaaar AAAARecord) Equal(oaaaar DNSResourceRecord) (bool, []string) {
+	other := oaaaar.(AAAARecord)
+	same, reasons := aaaar.Common.equal(other.Common)
+	if !aaaar.Addr.Equal(other.Addr) {
+		same = false
+		reason := fmt.Sprintf("Addr: %s != %s", aaaar.Addr, other.Addr)
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
 }
 
 type SRVRecord struct {
@@ -159,6 +213,32 @@ func (sr SRVRecord) GetCommon() ResourceRecordCommon {
 	return sr.Common
 }
 
+func (sr SRVRecord) Equal(osr DNSResourceRecord) (bool, []string) {
+	other := osr.(SRVRecord)
+	same, reasons := sr.Common.equal(other.Common)
+	if sr.Priority != other.Priority {
+		same = false
+		reason := fmt.Sprintf("Priority: %d != %d", sr.Priority, other.Priority)
+		reasons = append(reasons, reason)
+	}
+	if sr.Weight != other.Weight {
+		same = false
+		reason := fmt.Sprintf("Weight: %d != %d", sr.Weight, other.Weight)
+		reasons = append(reasons, reason)
+	}
+	if sr.Port != other.Port {
+		same = false
+		reason := fmt.Sprintf("Port: %d != %d", sr.Port, other.Port)
+		reasons = append(reasons, reason)
+	}
+	if sr.Target != other.Target {
+		same = false
+		reason := fmt.Sprintf("Target: %q != %q", sr.Target, other.Target)
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
+}
+
 type PTRRecord struct {
 	Common   ResourceRecordCommon
 	PtrDName string
@@ -176,6 +256,17 @@ func (pr PTRRecord) toRawDNSResourceRecord() (rawResourceRecord, error) {
 
 func (pr PTRRecord) GetCommon() ResourceRecordCommon {
 	return pr.Common
+}
+
+func (pr PTRRecord) Equal(opr DNSResourceRecord) (bool, []string) {
+	other := opr.(PTRRecord)
+	same, reasons := pr.Common.equal(other.Common)
+	if pr.PtrDName != other.PtrDName {
+		same = false
+		reason := fmt.Sprintf("PtrDName: %q != %q", pr.PtrDName, other.PtrDName)
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
 }
 
 type TXTRecord struct {
@@ -200,6 +291,25 @@ func (tr TXTRecord) toRawDNSResourceRecord() (rawResourceRecord, error) {
 
 func (tr TXTRecord) GetCommon() ResourceRecordCommon {
 	return tr.Common
+}
+
+func (tr TXTRecord) Equal(otr DNSResourceRecord) (bool, []string) {
+	other := otr.(TXTRecord)
+	same, reasons := tr.Common.equal(other.Common)
+	if len(tr.texts) != len(other.texts) {
+		same = false
+		reason := fmt.Sprintf("len(tr.texts): %d != %d", len(tr.texts), len(other.texts))
+		reasons = append(reasons, reason)
+		return same, reasons
+	}
+	for i, text := range tr.texts {
+		if text != other.texts[i] {
+			same = false
+			reason := fmt.Sprintf("texts[i]: %s != %s", text, other.texts[i])
+			reasons = append(reasons, reason)
+		}
+	}
+	return same, reasons
 }
 
 type NSECRecord struct {
@@ -338,6 +448,22 @@ func (nsr NSECRecord) GetCommon() ResourceRecordCommon {
 	return nsr.Common
 }
 
+func (nsr NSECRecord) Equal(onsr DNSResourceRecord) (bool, []string) {
+	other := onsr.(NSECRecord)
+	same, reasons := nsr.Common.equal(other.Common)
+	if nsr.NextDomainName != other.NextDomainName {
+		same = false
+		reason := fmt.Sprintf("NextDomainName: %q != %q", nsr.NextDomainName, other.NextDomainName)
+		reasons = append(reasons, reason)
+	}
+	if !reflect.DeepEqual(nsr.NextDomainTypes, other.NextDomainTypes) {
+		same = false
+		reason := fmt.Sprintf("NextDomainTypes: %v != %v", nsr.NextDomainTypes, other.NextDomainTypes)
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
+}
+
 type OPTRecord struct {
 	Common  ResourceRecordCommon
 	Options map[uint16][]byte
@@ -369,9 +495,21 @@ func (or OPTRecord) GetCommon() ResourceRecordCommon {
 	return or.Common
 }
 
+func (or OPTRecord) Equal(oor DNSResourceRecord) (bool, []string) {
+	other := oor.(OPTRecord)
+	same, reasons := or.Common.equal(other.Common)
+	if !reflect.DeepEqual(or.Options, other.Options) {
+		same = false
+		reason := fmt.Sprintf("Options: %v != %v", or.Options, other.Options)
+		reasons = append(reasons, reason)
+	}
+	return same, reasons
+}
+
 type DNSResourceRecord interface {
 	toRawDNSResourceRecord() (rawResourceRecord, error)
 	GetCommon() ResourceRecordCommon
+	Equal(rr DNSResourceRecord) (bool, []string)
 }
 
 type UInt16Slice []uint16

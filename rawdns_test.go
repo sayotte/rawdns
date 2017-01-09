@@ -55,8 +55,7 @@ func TestHeaderRoundtrip(t *testing.T) {
 	quick.Check(checkFunc, &cfg)
 }
 
-func (dh DNSHeader) equal(odh equaler) (bool, []string) {
-	other := odh.(DNSHeader)
+func (dh DNSHeader) equal(other DNSHeader) (bool, []string) {
 	same := true
 	var reasons []string
 
@@ -389,9 +388,7 @@ func TestDecoder_DecodeDNSMessage(t *testing.T) {
 		t.Fatalf("len(dm.Answers) is %d, expected %d", len(dm.Answers), len(expected.Answers))
 	}
 	for i, answer := range dm.Answers {
-		answerEq := answer.(equaler)
-		expectedEq := expected.Answers[i].(equaler)
-		same, reasons := answerEq.equal(expectedEq)
+		same, reasons := answer.Equal(expected.Answers[i])
 		if !same {
 			t.Errorf("Answers[%d]:", i)
 			for _, reason := range reasons {
@@ -403,9 +400,7 @@ func TestDecoder_DecodeDNSMessage(t *testing.T) {
 		t.Fatalf("len(dm.Additional) is %d, expected %d", len(dm.Additional), len(expected.Additional))
 	}
 	for i, addl := range dm.Additional {
-		addlEq := addl.(equaler)
-		expectedEq := expected.Additional[i].(equaler)
-		same, reasons := addlEq.equal(expectedEq)
+		same, reasons := addl.Equal(expected.Additional[i])
 		if !same {
 			t.Errorf("Additional[%d]:", i)
 			for _, reason := range reasons {
@@ -454,8 +449,7 @@ func TestQuestionRoundtrip(t *testing.T) {
 	quick.Check(checkFunc, &cfg)
 }
 
-func (dq DNSQuestion) equal(odq equaler) (bool, []string) {
-	other := odq.(DNSQuestion)
+func (dq DNSQuestion) equal(other DNSQuestion) (bool, []string) {
 	same := true
 	var reasons []string
 	if dq.Domain != other.Domain {
