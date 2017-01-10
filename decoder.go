@@ -8,8 +8,6 @@ import (
 	"net"
 	"sort"
 	"strings"
-
-	sayottebinary "github.com/sayotte/binary"
 )
 
 type readCounter struct {
@@ -21,12 +19,6 @@ func (rc *readCounter) Read(buf []byte) (int, error) {
 	off, err := rc.reader.Read(buf)
 	rc.offset += off
 	return off, err
-}
-
-func (rc *readCounter) ReadBinary(order binary.ByteOrder, i interface{}) (int, error) {
-	bytesRead, err := sayottebinary.Read(rc.reader, order, i)
-	rc.offset += bytesRead
-	return bytesRead, err
 }
 
 type Decoder struct {
@@ -89,7 +81,7 @@ func (d *Decoder) DecodeDNSMessage() (DNSMessage, error) {
 
 func (d *Decoder) nextRawDNSHeader() (rawDNSHeader, error) {
 	rdh := rawDNSHeader{}
-	_, err := d.rdr.ReadBinary(binary.BigEndian, &rdh)
+	err := binary.Read(d.rdr, binary.BigEndian, &rdh)
 	return rdh, err
 }
 
@@ -188,7 +180,7 @@ func (d *Decoder) nextRawQuestion() (rawDNSQuestion, error) {
 	}
 
 	// Populate rest of the query header
-	_, err = d.rdr.ReadBinary(binary.BigEndian, &rq.static)
+	err = binary.Read(d.rdr, binary.BigEndian, &rq.static)
 	if err != nil {
 		return rawDNSQuestion{}, fmt.Errorf("binary.Read: %s", err)
 	}
@@ -205,7 +197,7 @@ func (d *Decoder) nextRawDNSResourceRecord() (rawResourceRecord, error) {
 		return rdrr, fmt.Errorf("nextRawLabels: %s", err)
 	}
 
-	_, err = d.rdr.ReadBinary(binary.BigEndian, &rdrr.static)
+	err = binary.Read(d.rdr, binary.BigEndian, &rdrr.static)
 	if err != nil {
 		return rdrr, fmt.Errorf("binary.Read: %s", err)
 	}

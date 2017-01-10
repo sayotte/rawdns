@@ -1,3 +1,0 @@
-[submodule "src/github.com/sayotte/binary"]
-	path = vendor/github.com/sayotte/binary
-	url = https://github.com/sayotte/binary
